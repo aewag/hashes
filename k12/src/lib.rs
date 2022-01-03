@@ -23,9 +23,6 @@ extern crate alloc;
 
 pub use digest;
 
-#[macro_use]
-mod lanes;
-
 // TODO(tarcieri): eliminate usage of `Vec`
 use alloc::vec::Vec;
 use core::{cmp::min, convert::TryInto, mem};
@@ -231,21 +228,16 @@ fn f(input: &[u8], suffix: u8, mut output_len: usize) -> Vec<u8> {
 fn keccak(state: &mut [u8; 200]) {
     let mut lanes = [0u64; 25];
 
-    let mut y;
-    for x in 0..5 {
-        FOR5!(y, 5, {
-            let pos = 8 * (x + y);
-            lanes[x + y] = u64::from_le_bytes(state[pos..(pos + 8)].try_into().unwrap());
-        });
+    for (i, lane) in lanes.iter_mut().enumerate() {
+        let pos = 8 * i;
+        *lane = u64::from_le_bytes(state[pos..(pos + 8)].try_into().unwrap());
     }
 
     keccak_p(&mut lanes, 12);
 
-    for x in 0..5 {
-        FOR5!(y, 5, {
-            let i = 8 * (x + y);
-            state[i..i + 8].copy_from_slice(&lanes[x + y].to_le_bytes());
-        });
+    for (i, lane) in lanes.iter().enumerate() {
+        let pos = 8 * i;
+        state[pos..(pos + 8)].copy_from_slice(&lane.to_le_bytes());
     }
 }
 
