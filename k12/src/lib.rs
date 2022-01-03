@@ -30,6 +30,7 @@ mod lanes;
 use alloc::vec::Vec;
 use core::{cmp::min, convert::TryInto, mem};
 use digest::{ExtendableOutput, ExtendableOutputReset, HashMarker, Reset, Update, XofReader};
+use keccak::keccak_p;
 
 /// The KangarooTwelve extendable-output function (XOF).
 #[derive(Debug, Default)]
@@ -229,6 +230,7 @@ fn f(input: &[u8], suffix: u8, mut output_len: usize) -> Vec<u8> {
 
 fn keccak(state: &mut [u8; 200]) {
     let mut lanes = [0u64; 25];
+
     let mut y;
     for x in 0..5 {
         FOR5!(y, 5, {
@@ -236,7 +238,9 @@ fn keccak(state: &mut [u8; 200]) {
             lanes[x + y] = u64::from_le_bytes(state[pos..(pos + 8)].try_into().unwrap());
         });
     }
-    lanes::keccak(&mut lanes);
+
+    keccak_p(&mut lanes, 12);
+
     for x in 0..5 {
         FOR5!(y, 5, {
             let i = 8 * (x + y);
