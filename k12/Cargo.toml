@@ -13,6 +13,7 @@ categories = ["cryptography", "no-std"]
 
 [dependencies]
 digest = { version = "0.10", features = ["alloc"] }
+keccak = { git = "https://github.com/aewag/sponges", branch = "1-add-keccak-p" }
 
 [dev-dependencies]
 digest = { version = "0.10", features = ["alloc", "dev"] }
