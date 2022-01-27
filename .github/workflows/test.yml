@@ -1,0 +1,35 @@
+name: Test
+
+on:
+  workflow_call:
+    inputs:
+      package:
+        required: true
+        type: string
+      matrix:
+        required: true
+        type: string
+
+jobs:
+  test:
+    strategy:
+      matrix: ${{fromJSON(inputs.matrix)}}
+    runs-on: ${{ matrix.os }}
+    defaults:
+        run:
+            working-directory: ${{ inputs.package }}
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.rust }}
+          target: ${{ matrix.target }}
+          override: true
+      - run: ${{ matrix.deps }}
+      - run: cargo test --target ${{ matrix.target }} --no-default-features
+      - run: cargo test --target ${{ matrix.target }}
+      - if: ${{ matrix.os != 'windows-latest' }}
+        run: cargo test --target ${{ matrix.target }} --features asm
+      - if: ${{ matrix.os != 'windows-latest' }}
+        run: cargo test --target ${{ matrix.target }} --all-features
