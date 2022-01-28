@@ -110,6 +110,7 @@ jobs:
                 {
                     'target':'aarch64-unknown-linux-gnu',
                     'rust':'${{needs.set-msrv.outputs.msrv}}',
+                    'rustflags':'-Dwarnings --cfg aes_force_soft',
                     'features':'default',
                 },
                 {

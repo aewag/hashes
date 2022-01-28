@@ -34,7 +34,9 @@ jobs:
           wget -O /tmp/binaries.tar.gz $URL
           tar -C /tmp -xzf /tmp/binaries.tar.gz
           mv /tmp/cross ~/.cargo/bin
-      - run: cross test
+      - env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
+        run: cross test
           --target ${{ matrix.target }}
           --no-default-features
           --features ${{ matrix.features }}
