@@ -28,9 +28,16 @@ jobs:
           target: ${{ matrix.target }}
           override: true
       - uses: ./.github/actions/cross-install
-      - env:
+      - if: ${{ matrix.features != 'NO_FEATURE' }}
+        env:
           RUSTFLAGS: ${{ matrix.rustflags }}
         run: cross test
           --target ${{ matrix.target }}
           --no-default-features
           --features ${{ matrix.features }}
+      - if: ${{ matrix.features == 'NO_FEATURE' }}
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
+        run: cross test
+          --target ${{ matrix.target }}
+          --no-default-features
