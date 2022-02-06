@@ -27,7 +27,7 @@ jobs:
           toolchain: ${{ matrix.rust }}
           target: ${{ matrix.target }}
           override: true
-      - uses: ./.github/actions/cross-install
+      - uses: aewag/actions/cross-install@add-common-ci-patterns
       - if: ${{ matrix.features != 'NO_FEATURE' }}
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
