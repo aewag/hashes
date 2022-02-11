@@ -14,22 +14,14 @@ defaults:
     working-directory: sha2
 
 env:
-  MSRV: 1.41.0
   RUSTFLAGS: "-Dwarnings"
   CARGO_INCREMENTAL: 0
 
 jobs:
   set-msrv:
-    runs-on: ubuntu-latest
-    outputs:
-      msrv: ${{ steps.msrv.outputs.msrv }}
-      os: ${{ steps.os.outputs.os }}
-    steps:
-      - uses: actions/checkout@v2
-      - id: msrv
-        run: echo "::set-output name=msrv::$(echo $MSRV)"
-      - id: os
-        run: echo "::set-output name=os::$(echo no_std)"
+    uses: aewag/actions/.github/workflows/set-msrv.yml@add-common-ci-patterns
+    with:
+        msrv: 1.41.0
 
   set-matrix:
     needs: set-msrv
