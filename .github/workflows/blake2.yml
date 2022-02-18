@@ -39,7 +39,7 @@ jobs:
       - run: cargo build --no-default-features --target ${{ matrix.target }}
 
   minimal-versions:
-    uses: RustCrypto/actions/.github/workflows/minimal-versions.yml@master
+    uses: aewag/actions/.github/workflows/minimal-versions.yml@master
     with:
         working-directory: ${{ github.workflow }}
 
