@@ -135,6 +135,7 @@ version = "0.2.1"
 dependencies = [
  "digest",
  "hex-literal",
+ "sha3 0.10.6 (git+https://github.com/aewag/hashes?branch=add-turbo-shake)",
 ]
 
 [[package]]

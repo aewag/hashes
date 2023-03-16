@@ -13,6 +13,7 @@ categories = ["cryptography", "no-std"]
 
 [dependencies]
 digest = { version = "0.10.3", features = ["alloc"] }
+sha3 = { git = "https://github.com/aewag/hashes", branch = "add-turbo-shake" }
 
 [dev-dependencies]
 digest = { version = "0.10.3", features = ["alloc", "dev"] }
