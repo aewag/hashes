@@ -155,29 +155,21 @@ impl XofReader for Reader {
             return;
         }
         // === Process the tree with kangaroo hopping ===
-        let mut hasher = sha3::TurboShake128::from_core(sha3::TurboShake128Core::new(0x0B));
-        // TODO: in parallel
-        let mut chaining_values = Vec::with_capacity(n - 1);
+        let mut hasher = sha3::TurboShake128::from_core(sha3::TurboShake128Core::new(0x06))
+            .chain(slices[0])
+            .chain(&FINAL_NODE_PRE);
+
+        let mut h_cv_i = sha3::TurboShake128::from_core(sha3::TurboShake128Core::new(0x0B));
         for i in 1..n {
             let mut cv_i = [0u8; CV_I_LENGTH];
-            hasher.update(slices[i]);
-            hasher.finalize_xof_reset_into(&mut cv_i);
-            chaining_values.push(cv_i);
+            h_cv_i.update(slices[i]);
+            h_cv_i.finalize_xof_reset_into(&mut cv_i);
+            hasher.update(&cv_i);
         }
 
-        let mut final_node = Vec::new();
-        final_node.extend_from_slice(slices[0]);
-        final_node.extend_from_slice(&FINAL_NODE_PRE);
-
-        for cv_i in chaining_values {
-            final_node.extend_from_slice(&cv_i);
-        }
-
-        final_node.extend_from_slice(&right_encode(n - 1));
-        final_node.extend_from_slice(&FINAL_NODE_POST);
-
-        sha3::TurboShake128::from_core(sha3::TurboShake128Core::new(0x06))
-            .chain(&final_node[..])
+        hasher
+            .chain(&right_encode(n - 1))
+            .chain(&FINAL_NODE_POST)
             .finalize_xof_into(output);
     }
 }
