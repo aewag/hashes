@@ -28,6 +28,12 @@ use alloc::vec::Vec;
 use core::{cmp::min, mem};
 use digest::{ExtendableOutput, ExtendableOutputReset, HashMarker, Reset, Update, XofReader};
 
+const S_I_LENGTH: usize = 8192;
+const CV_I_LENGTH: usize = 32;
+
+const FINAL_NODE_PRE: [u8; 8] = [3, 0, 0, 0, 0, 0, 0, 0];
+const FINAL_NODE_POST: [u8; 2] = [0xff, 0xff];
+
 /// The KangarooTwelve extendable-output function (XOF).
 #[derive(Debug, Default)]
 pub struct KangarooTwelve {
@@ -126,9 +132,7 @@ impl XofReader for Reader {
             !self.finished,
             "not yet implemented: multiple XofReader::read invocations unsupported"
         );
-
-        let b = 8192;
-        const C: usize = 256;
+        self.finished = true;
 
         let mut slice = Vec::new(); // S
         slice.extend_from_slice(&self.buffer);
@@ -136,50 +140,45 @@ impl XofReader for Reader {
         slice.extend_from_slice(&right_encode(self.customization.len())[..]);
 
         // === Cut the input string into chunks of b bytes ===
-        let n = (slice.len() + b - 1) / b;
+        let n = (slice.len() + S_I_LENGTH - 1) / S_I_LENGTH;
         let mut slices = Vec::with_capacity(n); // Si
         for i in 0..n {
-            let ub = min((i + 1) * b, slice.len());
-            slices.push(&slice[i * b..ub]);
+            let ub = min((i + 1) * S_I_LENGTH, slice.len());
+            slices.push(&slice[i * S_I_LENGTH..ub]);
         }
 
-        // TODO(tarcieri): get rid of intermediate output buffer
         if n == 1 {
             // === Process the tree with only a final node ===
-            let mut hasher = sha3::TurboShake128::from_core(sha3::TurboShake128Core::new(0x07));
-            hasher.update(slices[0]);
-            hasher.finalize_xof_into(output);
-        } else {
-            // === Process the tree with kangaroo hopping ===
-            let hasher = sha3::TurboShake128::from_core(sha3::TurboShake128Core::new(0x0B));
-            // TODO: in parallel
-            let mut intermediate = Vec::with_capacity(n - 1); // CVi
-            for i in 0..n - 1 {
-                let mut digest = [0u8; C / 8];
-                let mut h = hasher.clone();
-                h.update(slices[i + 1]);
-                h.finalize_xof_into(&mut digest);
-                intermediate.push(digest);
-            }
+            sha3::TurboShake128::from_core(sha3::TurboShake128Core::new(0x07))
+                .chain(slices[0])
+                .finalize_xof_into(output);
+            return;
+        }
+        // === Process the tree with kangaroo hopping ===
+        let mut hasher = sha3::TurboShake128::from_core(sha3::TurboShake128Core::new(0x0B));
+        // TODO: in parallel
+        let mut chaining_values = Vec::with_capacity(n - 1);
+        for i in 1..n {
+            let mut cv_i = [0u8; CV_I_LENGTH];
+            hasher.update(slices[i]);
+            hasher.finalize_xof_reset_into(&mut cv_i);
+            chaining_values.push(cv_i);
+        }
 
-            let mut node_star = Vec::new();
-            node_star.extend_from_slice(slices[0]);
-            node_star.extend_from_slice(&[3, 0, 0, 0, 0, 0, 0, 0]);
+        let mut final_node = Vec::new();
+        final_node.extend_from_slice(slices[0]);
+        final_node.extend_from_slice(&FINAL_NODE_PRE);
 
-            #[allow(clippy::needless_range_loop)]
-            for i in 0..n - 1 {
-                node_star.extend_from_slice(&intermediate[i][..]);
-            }
+        for cv_i in chaining_values {
+            final_node.extend_from_slice(&cv_i);
+        }
 
-            node_star.extend_from_slice(&right_encode(n - 1));
-            node_star.extend_from_slice(b"\xFF\xFF");
+        final_node.extend_from_slice(&right_encode(n - 1));
+        final_node.extend_from_slice(&FINAL_NODE_POST);
 
-            let mut hasher = sha3::TurboShake128::from_core(sha3::TurboShake128Core::new(0x06));
-            hasher.update(&node_star[..]);
-            hasher.finalize_xof_into(output);
-        };
-
-        self.finished = true;
+        sha3::TurboShake128::from_core(sha3::TurboShake128Core::new(0x06))
+            .chain(&final_node[..])
+            .finalize_xof_into(output);
     }
 }
 
