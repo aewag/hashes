@@ -21,14 +21,18 @@
 extern crate alloc;
 
 pub use digest;
-
-#[macro_use]
-mod lanes;
+pub use sha3;
 
 // TODO(tarcieri): eliminate usage of `Vec`
 use alloc::vec::Vec;
-use core::{cmp::min, convert::TryInto, mem};
+use core::{cmp::min, mem};
 use digest::{ExtendableOutput, ExtendableOutputReset, HashMarker, Reset, Update, XofReader};
+
+const S_I_LENGTH: usize = 8192;
+const CV_I_LENGTH: usize = 32;
+
+const FINAL_NODE_PRE: [u8; 8] = [3, 0, 0, 0, 0, 0, 0, 0];
+const FINAL_NODE_POST: [u8; 2] = [0xff, 0xff];
 
 /// The KangarooTwelve extendable-output function (XOF).
 #[derive(Debug, Default)]
@@ -128,9 +132,7 @@ impl XofReader for Reader {
             !self.finished,
             "not yet implemented: multiple XofReader::read invocations unsupported"
         );
-
-        let b = 8192;
-        let c = 256;
+        self.finished = true;
 
         let mut slice = Vec::new(); // S
         slice.extend_from_slice(&self.buffer);
@@ -138,109 +140,37 @@ impl XofReader for Reader {
         slice.extend_from_slice(&right_encode(self.customization.len())[..]);
 
         // === Cut the input string into chunks of b bytes ===
-        let n = (slice.len() + b - 1) / b;
+        let n = (slice.len() + S_I_LENGTH - 1) / S_I_LENGTH;
         let mut slices = Vec::with_capacity(n); // Si
         for i in 0..n {
-            let ub = min((i + 1) * b, slice.len());
-            slices.push(&slice[i * b..ub]);
+            let ub = min((i + 1) * S_I_LENGTH, slice.len());
+            slices.push(&slice[i * S_I_LENGTH..ub]);
         }
 
-        // TODO(tarcieri): get rid of intermediate output buffer
-        let tmp_buffer = if n == 1 {
+        if n == 1 {
             // === Process the tree with only a final node ===
-            f(slices[0], 0x07, output.len())
-        } else {
-            // === Process the tree with kangaroo hopping ===
-            // TODO: in parallel
-            let mut intermediate = Vec::with_capacity(n - 1); // CVi
-            for i in 0..n - 1 {
-                intermediate.push(f(slices[i + 1], 0x0B, c / 8));
-            }
-
-            let mut node_star = Vec::new();
-            node_star.extend_from_slice(slices[0]);
-            node_star.extend_from_slice(&[3, 0, 0, 0, 0, 0, 0, 0]);
-
-            #[allow(clippy::needless_range_loop)]
-            for i in 0..n - 1 {
-                node_star.extend_from_slice(&intermediate[i][..]);
-            }
-
-            node_star.extend_from_slice(&right_encode(n - 1));
-            node_star.extend_from_slice(b"\xFF\xFF");
-
-            f(&node_star[..], 0x06, output.len())
-        };
-
-        output.copy_from_slice(&tmp_buffer);
-        self.finished = true;
-    }
-}
-
-fn f(input: &[u8], suffix: u8, mut output_len: usize) -> Vec<u8> {
-    let mut state = [0u8; 200];
-    let max_block_size = 1344 / 8; // r, also known as rate in bytes
-
-    // === Absorb all the input blocks ===
-    // We unroll first loop, which allows simple copy
-    let mut block_size = min(input.len(), max_block_size);
-    state[0..block_size].copy_from_slice(&input[0..block_size]);
-
-    let mut offset = block_size;
-    while offset < input.len() {
-        keccak(&mut state);
-        block_size = min(input.len() - offset, max_block_size);
-        for i in 0..block_size {
-            // TODO: is this sufficiently optimisable or better to convert to u64 first?
-            state[i] ^= input[i + offset];
+            sha3::TurboShake128::from_core(sha3::TurboShake128Core::new(0x07))
+                .chain(slices[0])
+                .finalize_xof_into(output);
+            return;
         }
-        offset += block_size;
-    }
-    if block_size == max_block_size {
-        // TODO: condition is nearly always false; tests pass without this.
-        // Why is it here?
-        keccak(&mut state);
-        block_size = 0;
-    }
+        // === Process the tree with kangaroo hopping ===
+        let mut hasher = sha3::TurboShake128::from_core(sha3::TurboShake128Core::new(0x06))
+            .chain(slices[0])
+            .chain(&FINAL_NODE_PRE);
 
-    // === Do the padding and switch to the squeezing phase ===
-    state[block_size] ^= suffix;
-    if ((suffix & 0x80) != 0) && (block_size == (max_block_size - 1)) {
-        // TODO: condition is almost always false — in fact tests pass without
-        // this block! So why is it here?
-        keccak(&mut state);
-    }
-    state[max_block_size - 1] ^= 0x80;
-    keccak(&mut state);
-
-    // === Squeeze out all the output blocks ===
-    let mut output = Vec::with_capacity(output_len);
-    while output_len > 0 {
-        block_size = min(output_len, max_block_size);
-        output.extend_from_slice(&state[0..block_size]);
-        output_len -= block_size;
-        if output_len > 0 {
-            keccak(&mut state);
+        let mut h_cv_i = sha3::TurboShake128::from_core(sha3::TurboShake128Core::new(0x0B));
+        for i in 1..n {
+            let mut cv_i = [0u8; CV_I_LENGTH];
+            h_cv_i.update(slices[i]);
+            h_cv_i.finalize_xof_reset_into(&mut cv_i);
+            hasher.update(&cv_i);
         }
-    }
-    output
-}
 
-fn keccak(state: &mut [u8; 200]) {
-    let mut lanes = [0u64; 25];
-    let mut y;
-    for x in 0..5 {
-        FOR5!(y, 5, {
-            let pos = 8 * (x + y);
-            lanes[x + y] = u64::from_le_bytes(state[pos..(pos + 8)].try_into().unwrap());
-        });
-    }
-    lanes::keccak(&mut lanes);
-    for x in 0..5 {
-        FOR5!(y, 5, {
-            let i = 8 * (x + y);
-            state[i..i + 8].copy_from_slice(&lanes[x + y].to_le_bytes());
-        });
+        hasher
+            .chain(&right_encode(n - 1))
+            .chain(&FINAL_NODE_POST)
+            .finalize_xof_into(output);
     }
 }
 
